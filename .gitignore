@@ -1,0 +1,6 @@
+.DS_Store
+*.asv
+*.m~
+out_*.mat
+**/EvaluationPoints.out
+**/Cell-old.m
