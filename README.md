@@ -35,6 +35,16 @@ See `paper_examples/README.md` for morphology name strings and parameters (`5 mW
 
 Run `smoke_test_paper_examples.m` for a short end-to-end check.
 
+
+## Healthy RBC volume and area
+
+The healthy biconcave geometry uses the Evans–Fung thickness profile with
+`r = 3.91 µm`, `τ_min = 0.81 µm`, `τ_max = 2.52 µm`, `d = 2.76 µm`.
+Enclosed volume and surface area are computed by axisymmetric integration
+(`rbc_volume_area`), giving **V ≈ 92.9 µm³** and **A ≈ 133.7 µm²**.
+Do not use `volume_from_mesh` on `genMeshRBC` output (that helper is for
+Gauss-uniform vesicle grids only).
+
 ## Citation
 
 If you use this code, please cite the Biomedical Optics Express article above and the original OTGO toolbox:

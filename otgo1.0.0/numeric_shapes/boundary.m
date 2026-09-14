@@ -107,14 +107,14 @@ function S = boundary(p, shapeIn, cnts)
       r = 3.91;
       d = 2.76;
 
-      C0 = t_min ./ (2*r);
-      C1 = ((4*r.^2)./(2*d.^2)) .* (-4*C0 + ((t_max.*abs(5*d.^2-16.*r.^2))./((4*r.^2-d.^2).^(3/2))));
-      C2 = ((16*r.^2)./(2*d.^4)) .* (2*C0 + ((t_max.*(16*r.^2-3*d.^2))./(sign(5*d.^2-16*r.^2).*(16*r.^2-d.^2).^(3/2))));
-
-      X = r.*sin(u).*cos(v);
-      Y = r.*sin(u).*sin(v);
-      %Z = ((1-sin(u).^2).*(C0+C1*sin(u).^2+C2*sin(u).^4)).^(1/2).*sign(cos(u));
-      Z = ((cos(u).^2).*(C0+C1*(1-cos(u).^2)+C2*(1-cos(u).^2).^2)).^(1/2).*sign(cos(u));
+      [C0, C2e, C4] = rbc_evans_coeffs(r, t_min, t_max, d);
+      rho = r.*sin(u);
+      X = rho.*cos(v);
+      Y = rho.*sin(v);
+      s = (rho./r).^2;
+      Zfull = sqrt(max(1 - s, 0)) .* (C0 + C2e.*s + C4.*s.^2);
+      Z = 0.5 .* Zfull .* sign(cos(u));
+      Z(cos(u) == 0) = 0;
 
       S = vesicle([X;Y;Z], kappa, 1, 1, viscCont(1));                 
     end

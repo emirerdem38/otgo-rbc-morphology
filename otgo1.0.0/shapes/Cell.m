@@ -105,7 +105,7 @@ classdef Cell < Superficies
                 obj.cart = d3Vec(shape.cart.x*k,shape.cart.y*k,shape.cart.z*k);
                 obj.shc = shape.shc;
                 obj.geoProp = shape.geoProp;
-                obj.surArea = surface_area_from_mesh(shape.cart.x, shape.cart.y, shape.cart.z);
+                obj.surArea = surface_area_from_mesh(shape.cart.x, shape.cart.y, shape.cart.z) * (k^2);
                 obj.mag = mag;
             catch
                 error('Error providing valid cell properties!')

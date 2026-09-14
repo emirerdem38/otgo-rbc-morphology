@@ -83,15 +83,17 @@ classdef RBC < Superficies
             Check.isreal('d must be real matrix greater than 0',d,'>',0)
             Check.samesize('c,r,t_min,t_max and d must have the same size',c,r,t_min,t_max,d)
 
+            % Mesh in µm; enclosed volume / area from Evans revolution integral
+            % (volume_from_mesh assumes a Gauss vesicle grid and is wrong here).
             [X, Y, Z] = genMeshRBC(r, t_min, t_max, d, 64);
-            V = volume_from_mesh(X(:), Y(:), Z(:));
+            [V, A] = rbc_volume_area(r*1e6, t_min*1e6, t_max*1e6, d*1e6);
 
             if ischar(vol) || isstring(vol)
                 if ~strcmp(vol, 'vol')
                     error('vol must be either ''vol'' or a positive real number.')
                 end
-                k = 1;
                 obj.vol = V;
+                obj.surArea = A;
             else
                 Check.isreal('vol must be real number greater than 0',vol,'>',0)
                 k = (vol/V)^(1/3);
@@ -101,6 +103,8 @@ classdef RBC < Superficies
                 t_max = t_max * k;
                 d = d * k;
                 [X, Y, Z] = genMeshRBC(r, t_min, t_max, d, 64);
+                [~, A] = rbc_volume_area(r*1e6, t_min*1e6, t_max*1e6, d*1e6);
+                obj.surArea = A;
             end
 
             obj.c = c;
@@ -111,8 +115,7 @@ classdef RBC < Superficies
             obj.t_min = t_min;
             obj.t_max = t_max;
             obj.d = d;
-            obj.cart = d3Vec([X(:), Y(:), Z(:)]); 
-            obj.surArea = surface_area_from_mesh(X(:), Y(:), Z(:));
+            obj.cart = d3Vec([X(:), Y(:), Z(:)]);
         end
         function h = plot(rbc,varargin)
             % PLOT Plots RBC set in 3D
@@ -143,8 +146,7 @@ classdef RBC < Superficies
                     N = varargin{n+1};
                 end
             end
-            Theta = 0:pi/N:pi;
-            Phi = -2*pi:pi/N:2*pi;
+            % Mesh resolution N is used below for Evans–Fung plotting grid.
             
             % RBC model does not work properly in micro scale, so it
             % should first be scaled up to unit size, then brought back to
@@ -177,22 +179,11 @@ classdef RBC < Superficies
                 end
             end
 
-            % Plots
-
-            % Shape coefficients from 'Theoretical investigation of erythrocytes optical trapping in ray optics approximation'
-            C0 = rbc.t_min ./ (2*rbc.r);
-            C1 = ((4*rbc.r.^2)./(2*rbc.d.^2)) .* (-4*C0 + ((rbc.t_max.*abs(5*rbc.d.^2-16.*rbc.r.^2))./((4*rbc.r.^2-rbc.d.^2).^(3/2))));
-            C2 = ((16*rbc.r.^2)./(2*rbc.d.^4)) .* (2*C0 + ((rbc.t_max.*(16*rbc.r.^2-3*rbc.d.^2))./(sign(5*rbc.d.^2-16*rbc.r.^2).*(16*rbc.r.^2-rbc.d.^2).^(3/2))));
-            
-            % Different shape coefficients can also be used, below shape coefficients 
-            % corresponds to experimental findings of Evan Evans and Yuan-Cheng Fung on
-            % 'Improved Measurements of the Erythrocyte Geometry'. To change the shape 
-            % coefficients that OTGO operates, it should be changed on all relevant methods: 
-            % plot, intersectionpoint, perpline.
-            
-            % C0 = 0.81*ones(size(rbc));
-            % C1 = 7.83*ones(size(rbc));
-            % C2 = -4.39*ones(size(rbc));
+            % Plots (Evans–Fung graph; same coefficients as genMeshRBC)
+            [C0, C2e, C4] = rbc_evans_coeffs(rbc.r, rbc.t_min, rbc.t_max, rbc.d);
+            th = linspace(0, pi, N+1);
+            ph = linspace(0, 2*pi, 2*N);
+            [Th, Ph] = meshgrid(th, ph);
 
             ht = zeros(rbc.size());
             for m = 1:1:rbc.size(1)
@@ -202,10 +193,13 @@ classdef RBC < Superficies
                     % with a default orientation; Hence, after the nodal points are calculated, they
                     % must be translated and rotated with regard to the configuration of the RBC.
 
-                    % Points to be plotted
-                    X = rbc.r(m,n)*cos(Theta')*cos(Phi);
-                    Y = rbc.r(m,n)*sin(Theta')*cos(Phi);
-                    Z = ones(size(Theta')) * (((1-cos(Phi).^2) .* (C0(m,n) + C1(m,n)*cos(Phi).^2 + C2(m,n)*cos(Phi).^4)).^(1/2).* sign(Phi));
+                    rho = rbc.r(m,n) .* sin(Th);
+                    X = rho .* cos(Ph);
+                    Y = rho .* sin(Ph);
+                    s = (rho ./ rbc.r(m,n)).^2;
+                    Zfull = sqrt(max(1 - s, 0)) .* (C0(m,n) + C2e(m,n)*s + C4(m,n)*s.^2);
+                    Z = 0.5 .* Zfull .* sign(cos(Th));
+                    Z(cos(Th) == 0) = 0;
                     
                     R = [rbc.or1.Vx rbc.or2.Vx rbc.or3.Vx;
                          rbc.or1.Vy rbc.or2.Vy rbc.or3.Vy;
@@ -483,19 +477,9 @@ classdef RBC < Superficies
             p2Y = NaN(size(ln_set,1),size(ln_set,2));
             p2Z = NaN(size(ln_set,1),size(ln_set,2));
             
-            % Shape coefficients
-            C0 = rbc.t_min / (2*rbc.r);
-            C1 = ((4*rbc.r^2)/(2*rbc.d^2)) * (-4*C0 + ((rbc.t_max*abs(5*rbc.d^2-16*rbc.r^2))/((4*rbc.r^2-rbc.d^2)^(3/2))));
-            C2 = ((16*rbc.r^2)/(2*rbc.d^4)) * (2*C0 + ((rbc.t_max*(16*rbc.r^2-3*rbc.d^2))/(sign(5*rbc.d^2-16*rbc.r^2)*(16*rbc.r^2-rbc.d^2)^(3/2))));
-            
-            %C0 = 0.81;
-            %C1 = 7.83;
-            %C2 = -4.39;
-            
-            % RBC model
-            %rbc_eq = @(x, y) abs((1 - (x^2 + y^2)/rbc.r^2) * (C0 + C1*((x^2 + y^2)/rbc.r^2) + C2*((x^2 + y^2)^2/rbc.r^4)))^(1/2);
-
-            rbc_eq = @(x, y) abs((1 - (x.^2 + y.^2)/rbc.r^2) .* (C0 + C1*((x.^2 + y.^2)/rbc.r^2) + C2*((x.^2 + y.^2).^2/rbc.r^4))).^(1/2);
+            % Evans–Fung coefficients (dimensional; same as genMeshRBC)
+            [C0, C2e, C4] = rbc_evans_coeffs(rbc.r, rbc.t_min, rbc.t_max, rbc.d);
+            rbc_eq = @(x, y) rbc_evans_halfthickness(x, y, rbc.r, C0, C2e, C4);
             
             % Scale up the lines to unit size
             ordx = floor(log10(abs(ln_set.p1.X)));
@@ -525,40 +509,8 @@ classdef RBC < Superficies
             ln_set = SLine(Point(p1X,p1Y,p1Z),Point(p2X,p2Y,p2Z));
             lnc = normalize(ln_set.p2 - ln_set.p1);
 
-            % Use the below code if RBC orientation is expressed by a
-            % single vector (typically along +z)
-
-            % % Adjust the line set so that it intersects with the RBC
-            % % that is centered at the origin and with a default
-            % % orientation (because this is what the mathematical expression denotes).
-            % 
-            % ln_set = ln_set.translate(-1*rbc.c);
-            % ln_set = ln_set.xrotation(x_angle);
-            % ln_set = ln_set.yrotation(y_angle);
-            % ln_set = ln_set.zrotation(z_angle);
-            % 
-            % lnc = normalize(ln_set.p2 - ln_set.p1);
-            
-            % Coefficients to simplify the analytical expression for the intersection points
             a1 = ln_set.p1.X; a2 = ln_set.p1.Y; a3 = ln_set.p1.Z;
             b1 = lnc.X; b2 = lnc.Y; b3 = lnc.Z;
-            D1 = (b1.^2+b2.^2) / (rbc.r^2);
-            D2 = (2*(a1.*b1+a2.*b2)) / (rbc.r^2);
-            D3 = ((a1.^2)+(a2.^2)) / (rbc.r^2);
-
-            E1 = C2*D1.^2;
-            E2 = 2*C2*D1.*D2;
-            E3 = 2*C2*D1.*D3 + C2*D2.^2 + C1*D1;
-            E4 = 2*C2*D2.*D3 + C1*D2;
-            E5 = C0 + C1*D3 + C2*D3.^2;
-
-            F1 = D1.*E1;
-            F2 = D1.*E2 + D2.*E1;
-            F3 = D1.*E3 + D2.*E2 + D3.*E1 - E1;
-            F4 = D1.*E4 + D2.*E3 + D3.*E2 - E2;
-            F5 = D1.*E5 + D2.*E4 + D3.*E3 - E3 + b3.^2;
-            F6 = D2.*E5 + D3.*E4 - E4 + 2*a3.*b3;
-            F7 = D3.*E5 - E5 + a3.^2;
 
             % Iterate for all lines
             parfor i = 1:numel(ln_set)
@@ -566,23 +518,13 @@ classdef RBC < Superficies
                 ln = SLine(Point(ln_set.p1.X(i),ln_set.p1.Y(i),ln_set.p1.Z(i)),Point(ln_set.p2.X(i),ln_set.p2.Y(i),ln_set.p2.Z(i)));
                 lnc_new = Point(lnc.X(i),lnc.Y(i),lnc.Z(i));
 
-                % Default polynomial solver of MATLAB
-                eq = [F1(i) F2(i) F3(i) F4(i) F5(i) F6(i) F7(i)];
-                try
-                    rts = roots(eq);
-                    rts = sort(rts(imag(rts) == 0 & real(rts) > -1e-3));
-                catch
-                    rts = [NaN; NaN; NaN; NaN; NaN; NaN];
+                rts = rbc_evans_line_roots(a1(i), a2(i), a3(i), b1(i), b2(i), b3(i), ...
+                    rbc.r, C0, C2e, C4);
+                if isempty(rts)
+                    rts = nan(0,1);
+                else
+                    rts = rts(:);
                 end
-
-                % Use the below solver of MATLAB Symbollic toolbox for
-                % more accuracy (computational time increases drastically). 
-                
-                % syms t
-                % eqn_intersection = F1(i,j)*t^6 + F2(i,j)*t^5 + F3(i,j)*t^4 + F4(i,j)*t^3 + F5(i,j)*t^2 + F6(i,j)*t + F7(i,j) == 0;
-                % t_sol = double(solve(eqn_intersection,t));
-                % t_real_sol = double(t_sol(imag(t_sol) == 0));
-                % rts = double(t_real_sol(real(t_real_sol) > -1e-3));
 
                 pts = [];
 
@@ -592,10 +534,11 @@ classdef RBC < Superficies
                     point_z = ln.p1.Z+rts(k)*lnc_new.Z;
 
                     if (point_x^2+point_y^2) < rbc.r^2 + 1e-6
+                        z_surf = rbc_eq(point_x,point_y);
                         if point_z >= 0
-                            point_z = rbc_eq(point_x,point_y);
+                            point_z = z_surf;
                         else
-                            point_z = -rbc_eq(point_x,point_y);          
+                            point_z = -z_surf;
                         end
                         pts = [pts,[point_x; point_y; point_z]];
                     end
@@ -686,18 +629,8 @@ classdef RBC < Superficies
 
             p_set = Point(pX,pY,pZ);
             
-            % Shape Coefficients
-            C0 = rbc.t_min / (2*rbc.r);
-            C1 = ((4*rbc.r^2)/(2*rbc.d^2)) * (-4*C0 + ((rbc.t_max*abs(5*rbc.d^2-16*rbc.r^2))/((4*rbc.r^2-rbc.d^2)^(3/2))));
-            C2 = ((16*rbc.r^2)/(2*rbc.d^4)) * (2*C0 + ((rbc.t_max*(16*rbc.r^2-3*rbc.d^2))/(sign(5*rbc.d^2-16*rbc.r^2)*(16*rbc.r^2-rbc.d^2)^(3/2))));
-
-            % C0 = 0.81;
-            % C1 = 7.83;
-            % C2 = -4.39;
-            
-            % Partial derivatives of RBC model (necessary for gradient calculations)
-            rbc_x = @(x, y) (1/2)*(abs((1-((x^2+y^2)/rbc.r^2))*(C0+C1*((x^2+y^2)/rbc.r^2)+C2*((x^2+y^2)^2/rbc.r^4)))^(-1/2)) * ( ((-2*x)/rbc.r^2)*(C0+C1*((x^2+y^2)/rbc.r^2)+C2*((x^2+y^2)^2/rbc.r^4)) + (((2*C1*x)/rbc.r^2) + ((4*C2*x^3)/rbc.r^4) + ((4*C2*y^2*x)/rbc.r^4) )*(1-((x^2+y^2)/(rbc.r^2))));
-            rbc_y = @(x, y) (1/2)*(abs((1-((x^2+y^2)/rbc.r^2))*(C0+C1*((x^2+y^2)/rbc.r^2)+C2*((x^2+y^2)^2/rbc.r^4)))^(-1/2)) * ( ((-2*y)/rbc.r^2)*(C0+C1*((x^2+y^2)/rbc.r^2)+C2*((x^2+y^2)^2/rbc.r^4)) + (((2*C1*y)/rbc.r^2) + ((4*C2*y^3)/rbc.r^4) + ((4*C2*x^2*y)/rbc.r^4) )*(1-((x^2+y^2)/(rbc.r^2))));
+            % Evans–Fung coefficients (graph z = ± half-thickness)
+            [C0, C2e, C4] = rbc_evans_coeffs(rbc.r, rbc.t_min, rbc.t_max, rbc.d);
             
             % Preset matrices for calculated perpendicular vectors
             ln_setX = NaN(size(p_set,1),size(p_set,2));
@@ -711,9 +644,9 @@ classdef RBC < Superficies
                 for j = 1:size(p_set,2)       
                     p = Point(p_set.X(i,j),p_set.Y(i,j),p_set.Z(i,j));
                     
-                    % Calculate the normal vector by evaulating the
-                    % gradient at the point of interest.
-                    normal_vector = Vector(p.X,p.Y,p.Z,-rbc_x(p.X,p.Y),-rbc_y(p.X,p.Y),sign(p.Z));
+                    % Gradient of the graph F = z - f(x,y); normal ~ (-f_x,-f_y,1)
+                    [zx, zy] = rbc_evans_grad(p.X, p.Y, rbc.r, C0, C2e, C4);
+                    normal_vector = Vector(p.X,p.Y,p.Z,-zx,-zy,sign(p.Z));
 
                     ln_setX(i,j) = normal_vector.X; ln_setY(i,j) = normal_vector.Y; ln_setZ(i,j) = normal_vector.Z;
                     ln_setVX(i,j) = normal_vector.Vx; ln_setVY(i,j) = normal_vector.Vy; ln_setVZ(i,j) = normal_vector.Vz;
