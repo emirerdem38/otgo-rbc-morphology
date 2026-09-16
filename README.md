@@ -14,7 +14,6 @@ This repository provides an extended [OTGO](https://github.com/softmatterlab) ge
 |------|-------------|
 | `otgo1.0.0/` | OTGO 1.0.0 with extended `Cell` / `ParticleCELL` classes and morphology generators |
 | `paper_examples/` | Minimal drivers matching the paper optical setup |
-| `otgo_examples1.0.0/` | Additional OTGO usage examples |
 
 ## Requirements
 
